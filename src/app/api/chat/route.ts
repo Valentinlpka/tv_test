@@ -1,9 +1,74 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { addMessageToTicket, createTicket, getActiveChat, setActiveChat } from '../shared/tickets';
 
 // Configuration Telegram Bot
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+// Fonctions pour communiquer avec l'API centralisée
+async function getActiveChat(userHash: string): Promise<string | null> {
+  try {
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : 'http://localhost:3000';
+      
+    const response = await fetch(`${baseUrl}/api/tickets-db?action=active_chat&userHash=${userHash}`);
+    const data = await response.json();
+    return data.ticketId;
+  } catch (error) {
+    console.error('Erreur récupération chat actif:', error);
+    return null;
+  }
+}
+
+async function createTicket(userName: string, message: string, userInfo: any): Promise<string> {
+  try {
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : 'http://localhost:3000';
+      
+    const response = await fetch(`${baseUrl}/api/tickets-db`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'create_ticket',
+        userName,
+        message,
+        userInfo
+      })
+    });
+    
+    const data = await response.json();
+    return data.ticketId;
+  } catch (error) {
+    console.error('Erreur création ticket:', error);
+    return `T${Date.now()}`; // Fallback
+  }
+}
+
+async function addMessageToTicket(ticketId: string, message: string, sender: 'user' | 'support'): Promise<boolean> {
+  try {
+    const baseUrl = process.env.VERCEL_URL 
+      ? `https://${process.env.VERCEL_URL}` 
+      : 'http://localhost:3000';
+      
+    const response = await fetch(`${baseUrl}/api/tickets-db`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'add_message',
+        ticketId,
+        message,
+        sender
+      })
+    });
+    
+    const data = await response.json();
+    return data.success;
+  } catch (error) {
+    console.error('Erreur ajout message:', error);
+    return false;
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,17 +82,16 @@ export async function POST(request: NextRequest) {
     const userHash = Buffer.from(userName + (userAgent || '')).toString('base64').slice(0, 10);
     
     // Vérifier si c'est un nouvel utilisateur ou une conversation existante
-    let ticketId = getActiveChat(userHash);
+    let ticketId = await getActiveChat(userHash);
     let isNewTicket = false;
     
     if (!ticketId) {
       // Nouveau ticket pour ce client
-      ticketId = createTicket(userName, message, { userAgent, page, userHash });
-      setActiveChat(userHash, ticketId);
+      ticketId = await createTicket(userName, message, { userAgent, page, userHash });
       isNewTicket = true;
     } else {
       // Ajouter le message au ticket existant
-      addMessageToTicket(ticketId, message, 'user');
+      await addMessageToTicket(ticketId, message, 'user');
     }
 
     // Vérifier que les variables d'environnement sont configurées
