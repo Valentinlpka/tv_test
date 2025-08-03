@@ -4,14 +4,13 @@ import { NextRequest, NextResponse } from 'next/server';
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-// Importer la fonction de création de ticket
-// Note: En production, utiliser une vraie base de données partagée
+// Stockage simple pour les tickets et chats actifs
 let ticketCounter = 1000;
 const activeChats = new Map<string, string>(); // userHash -> ticketId
 
 function createTicket(userName: string, message: string, userInfo: any): string {
   const ticketId = `T${ticketCounter++}`;
-  // Ici on créerait le ticket dans la base de données
+  // En production, ici on créerait le ticket dans la base de données
   console.log(`🎫 Nouveau ticket créé: ${ticketId} pour ${userName}`);
   return ticketId;
 }
@@ -24,7 +23,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Message requis' }, { status: 400 });
     }
 
-    // Créer un hash unique pour cet utilisateur (basé sur son nom et timestamp de première visite)
+    // Créer un hash unique pour cet utilisateur (basé sur son nom et user agent)
     const userHash = Buffer.from(userName + (userAgent || '')).toString('base64').slice(0, 10);
     
     // Vérifier si c'est un nouvel utilisateur ou une conversation existante
@@ -50,7 +49,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ 
         success: true, 
         message: 'Message reçu (mode développement)',
-        ticketId: ticketId
+        ticketId: ticketId,
+        isNewTicket: isNewTicket
       });
     }
 

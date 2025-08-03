@@ -43,30 +43,6 @@ async function sendTelegramMessage(text: string, chatId?: string) {
   }
 }
 
-// Créer un nouveau ticket
-function createTicket(userName: string, message: string, userEmail?: string): string {
-  const ticketId = `T${ticketCounter++}`;
-  
-  const newTicket = {
-    id: ticketId,
-    userName,
-    userEmail,
-    status: 'open' as const,
-    priority: 'medium' as const,
-    subject: message.slice(0, 50) + (message.length > 50 ? '...' : ''),
-    messages: [{
-      text: message,
-      sender: 'user' as const,
-      timestamp: new Date().toLocaleString('fr-FR')
-    }],
-    createdAt: new Date().toLocaleString('fr-FR'),
-    lastActivity: new Date().toLocaleString('fr-FR')
-  };
-  
-  tickets.push(newTicket);
-  return ticketId;
-}
-
 // Traiter les commandes Telegram
 async function handleTelegramCommand(text: string, fromUser: any) {
   const command = text.toLowerCase().trim();
@@ -294,7 +270,11 @@ export async function POST(request: NextRequest) {
     
     // Enregistrer le message comme réponse support dans le système de chat
     try {
-      await fetch(`${process.env.VERCEL_URL || 'http://localhost:3000'}/api/chat-messages`, {
+      const baseUrl = process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}` 
+        : 'http://localhost:3000';
+        
+      await fetch(`${baseUrl}/api/chat-messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -313,6 +293,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true }); // Toujours répondre OK à Telegram
   }
 }
-
-// Export des fonctions pour utilisation dans d'autres APIs
-export { createTicket, tickets };
