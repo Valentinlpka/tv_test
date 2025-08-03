@@ -1,19 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { addMessageToTicket, createTicket, getActiveChat, setActiveChat } from '../shared/tickets';
 
 // Configuration Telegram Bot
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-
-// Stockage simple pour les tickets et chats actifs
-let ticketCounter = 1000;
-const activeChats = new Map<string, string>(); // userHash -> ticketId
-
-function createTicket(userName: string, message: string, userInfo: any): string {
-  const ticketId = `T${ticketCounter++}`;
-  // En production, ici on créerait le ticket dans la base de données
-  console.log(`🎫 Nouveau ticket créé: ${ticketId} pour ${userName}`);
-  return ticketId;
-}
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,14 +17,17 @@ export async function POST(request: NextRequest) {
     const userHash = Buffer.from(userName + (userAgent || '')).toString('base64').slice(0, 10);
     
     // Vérifier si c'est un nouvel utilisateur ou une conversation existante
-    let ticketId = activeChats.get(userHash);
+    let ticketId = getActiveChat(userHash);
     let isNewTicket = false;
     
     if (!ticketId) {
       // Nouveau ticket pour ce client
-      ticketId = createTicket(userName, message, { userAgent, page });
-      activeChats.set(userHash, ticketId);
+      ticketId = createTicket(userName, message, { userAgent, page, userHash });
+      setActiveChat(userHash, ticketId);
       isNewTicket = true;
+    } else {
+      // Ajouter le message au ticket existant
+      addMessageToTicket(ticketId, message, 'user');
     }
 
     // Vérifier que les variables d'environnement sont configurées
@@ -114,6 +107,24 @@ ${device}
 
     console.log('✅ Message envoyé vers Telegram avec succès');
     console.log(`🎫 Ticket: ${ticketId} - ${isNewTicket ? 'NOUVEAU' : 'EXISTANT'}`);
+    
+    // Aussi enregistrer dans le chat pour l'affichage sur le site
+    try {
+      const baseUrl = process.env.VERCEL_URL 
+        ? `https://${process.env.VERCEL_URL}` 
+        : 'http://localhost:3000';
+        
+      await fetch(`${baseUrl}/api/chat-messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: message,
+          sender: 'user'
+        })
+      });
+    } catch (error) {
+      console.error('Erreur enregistrement message:', error);
+    }
     
     return NextResponse.json({ 
       success: true, 

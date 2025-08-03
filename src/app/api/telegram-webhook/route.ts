@@ -1,26 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  getAllTickets,
+  getTicket,
+  updateTicketPriority,
+  updateTicketStatus
+} from '../shared/tickets';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-
-// Base de données simple en mémoire pour les tickets (en production: vraie DB)
-let tickets: Array<{
-  id: string;
-  userName: string;
-  userEmail?: string;
-  status: 'open' | 'closed' | 'pending';
-  priority: 'low' | 'medium' | 'high' | 'urgent';
-  subject: string;
-  messages: Array<{
-    text: string;
-    sender: 'user' | 'support';
-    timestamp: string;
-  }>;
-  createdAt: string;
-  lastActivity: string;
-}> = [];
-
-let ticketCounter = 1000;
 
 // Fonction pour envoyer un message Telegram
 async function sendTelegramMessage(text: string, chatId?: string) {
@@ -46,6 +33,7 @@ async function sendTelegramMessage(text: string, chatId?: string) {
 // Traiter les commandes Telegram
 async function handleTelegramCommand(text: string, fromUser: any) {
   const command = text.toLowerCase().trim();
+  const tickets = getAllTickets();
   
   if (command === '/tickets' || command === '/list') {
     const openTickets = tickets.filter(t => t.status === 'open');
@@ -83,14 +71,14 @@ async function handleTelegramCommand(text: string, fromUser: any) {
   
   if (command.startsWith('/ticket ')) {
     const ticketId = command.split(' ')[1]?.toUpperCase();
-    const ticket = tickets.find(t => t.id === ticketId);
+    const ticket = getTicket(ticketId);
     
     if (!ticket) {
       return `❌ Ticket \`${ticketId}\` introuvable.\nUtilisez \`/tickets\` pour voir la liste.`;
     }
     
     const statusEmoji = ticket.status === 'open' ? '🟢' : ticket.status === 'closed' ? '🔴' : '🟡';
-    const priorityEmoji = ticket.priority === 'urgent' ? '🚨' : ticket.priority === 'high' ? '🔴' : ticket.priority === 'medium' ? '🟡' : '🟢';
+    const priorityEmoji = ticket.priority === 'urgent' ? '🚨' : ticket.priority === 'high' ? '��' : ticket.priority === 'medium' ? '🟡' : '🟢';
     
     let response = `🎫 *TICKET ${ticket.id}*\n\n`;
     response += `${statusEmoji} *Status:* ${ticket.status.toUpperCase()}\n`;
@@ -122,7 +110,7 @@ async function handleTelegramCommand(text: string, fromUser: any) {
   
   if (command.startsWith('/close ')) {
     const ticketId = command.split(' ')[1]?.toUpperCase();
-    const ticket = tickets.find(t => t.id === ticketId);
+    const ticket = getTicket(ticketId);
     
     if (!ticket) {
       return `❌ Ticket \`${ticketId}\` introuvable.`;
@@ -132,15 +120,14 @@ async function handleTelegramCommand(text: string, fromUser: any) {
       return `ℹ️ Le ticket \`${ticketId}\` est déjà fermé.`;
     }
     
-    ticket.status = 'closed';
-    ticket.lastActivity = new Date().toLocaleString('fr-FR');
+    updateTicketStatus(ticketId, 'closed');
     
     return `✅ Ticket \`${ticketId}\` fermé avec succès.\n👤 Client: ${ticket.userName}\n📝 Sujet: "${ticket.subject}"`;
   }
   
   if (command.startsWith('/reopen ')) {
     const ticketId = command.split(' ')[1]?.toUpperCase();
-    const ticket = tickets.find(t => t.id === ticketId);
+    const ticket = getTicket(ticketId);
     
     if (!ticket) {
       return `❌ Ticket \`${ticketId}\` introuvable.`;
@@ -150,8 +137,7 @@ async function handleTelegramCommand(text: string, fromUser: any) {
       return `ℹ️ Le ticket \`${ticketId}\` est déjà ouvert.`;
     }
     
-    ticket.status = 'open';
-    ticket.lastActivity = new Date().toLocaleString('fr-FR');
+    updateTicketStatus(ticketId, 'open');
     
     return `🔓 Ticket \`${ticketId}\` rouvert avec succès.\n👤 Client: ${ticket.userName}`;
   }
@@ -165,14 +151,13 @@ async function handleTelegramCommand(text: string, fromUser: any) {
       return `❌ Priorité invalide. Utilisez: low, medium, high, urgent`;
     }
     
-    const ticket = tickets.find(t => t.id === ticketId);
+    const ticket = getTicket(ticketId);
     if (!ticket) {
       return `❌ Ticket \`${ticketId}\` introuvable.`;
     }
     
     const oldPriority = ticket.priority;
-    ticket.priority = newPriority as any;
-    ticket.lastActivity = new Date().toLocaleString('fr-FR');
+    updateTicketPriority(ticketId, newPriority as any);
     
     const priorityEmoji = newPriority === 'urgent' ? '🚨' : newPriority === 'high' ? '🔴' : newPriority === 'medium' ? '🟡' : '🟢';
     
@@ -246,8 +231,8 @@ export async function POST(request: NextRequest) {
     const text = message.text;
     const fromUser = message.from;
 
-    // Ignorer les messages du bot lui-même
-    if (message.from.is_bot) {
+    // Ignorer les messages du bot lui-même et le /start
+    if (message.from.is_bot || text?.startsWith('/start')) {
       return NextResponse.json({ ok: true });
     }
 
@@ -265,9 +250,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Si ce n'est pas une commande, c'est peut-être une réponse à un ticket
-    // Pour simplifier, on considère que tous les messages non-commandes sont des réponses générales
-    
+    // Si ce n'est pas une commande, c'est une réponse support générale
     // Enregistrer le message comme réponse support dans le système de chat
     try {
       const baseUrl = process.env.VERCEL_URL 
